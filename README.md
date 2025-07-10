@@ -1,4 +1,4 @@
-# Quantum-Protein-Folding
-insert desc leater
-test
-testing
+# Official Project Title (Google Doc): Protein Folding Algorithm | Quantum Algorithms
+# Project Title: Quantum Computing-Optimized Protein Folding via Lattice Models
+# Project Description: This protein folding algorithm project explores how the application of quantum computing to the protein folding problem is dealth with through a hybrid quantum-classical algorithm. Through the utilization of a simplified tetrahedral latttice model alongside a CVaR-optimized Variational Quantum Eigeinsolver (otherwise known as VQE), the algorithm would encode amino acid sequences into their subsequent binary folding patterns, seeking configurations that are low-energy. From this implementation, lattice encoding, Hamiltonian designs, quantum circuits, and their aligned simulations, are all included.
+# Team Member Names: Sammy Yamout, Andrew Adepetu, Uzoma Idika, Arlo John Pangilinan
