@@ -17,7 +17,7 @@ Step 1: Ensure that you have the GitHub website on, have Visual Studio Code (VSC
 Step 2: Ensure that you have followed the steps for cloning a GitHub repository.
 Step 3: Explore and research what is currently active on VSC. You should find that your repository, once implemented onto VSC, has a README.md.
 Step 4: Ensure that you can create a new file. If you need to also install dependencies, use the terminal and install them accordingly. (For the purposes of these instructions, the dependencies will be correlated to Python due to project relevance.)
-Step 5: Run from the terminal through Python.
+Step 5: Run from the terminal through Python. Make sure to click the triangle-shaped button on the top right corner to run it.
 Step 6: If you wish to save progress, look at VSC and click the "Save All" button where the icons are located on the left column. To find it on GitHub, look once more on the left column and "Commit & Pull" with a respective message. All coding progress should be saved onto the GitHub website.
 # Working Commits:
 Sammy: Working!
