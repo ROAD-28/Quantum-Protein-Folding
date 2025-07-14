@@ -138,3 +138,20 @@ def plot_fold_path_3d(path):
 
 print("Optimized parameters:", result.x)
 print("Final energy:", result.fun)
+
+
+class AminoAcidProperties:
+    def __init__(self):
+        self.hydrophobic_residues = {'A', 'V', 'I', 'L', 'M', 'F', 'Y', 'W'}
+        self.hydrophilic_residues = {'R', 'N', 'D', 'Q', 'E', 'K', 'S', 'T', 'H', 'C'}
+
+    def is_hydrophobic(self, residue):
+        return residue in self.hydrophobic_residues
+
+    def is_hydrophilic(self, residue):
+        return residue in self.hydrophilic_residues
+
+        # polarization effects:
+
+
+        
