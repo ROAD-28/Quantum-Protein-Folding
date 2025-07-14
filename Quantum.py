@@ -1,13 +1,12 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+
 import cirq
 from scipy.optimize import minimize
-from itertools import combinations
+import matplotlib.pyplot as plt
 
-# -----------------------------
-# 1. Tetrahedral Directions
-# -----------------------------
+from mpl_toolkits.mplot3d import Axes3D
+
+
 tetrahedral_directions = [
     np.array([1, 1, 1]),
     np.array([1, -1, -1]),
@@ -15,147 +14,136 @@ tetrahedral_directions = [
     np.array([-1, -1, 1])
 ]
 
-# -----------------------------
-# 2. Protein Sequence (Expanded)
-# -----------------------------
-sequence = "HPPHPPHPHPHPPHPH"  # 16 residues
-num_residues = len(sequence)
-num_folds = num_residues - 1
-num_qubits = 2 * num_folds
-qubits = cirq.NamedQubit.range(num_qubits, prefix="q")
+def build_hamiltonian(qubits, sequence):
+    n = len(sequence)
+    terms = []
 
-# -----------------------------
-# 3. Bitstring to Directions
-# -----------------------------
-def bitstring_to_directions(bitstring):
-    return [int("".join(bitstring[i:i+2]), 2) for i in range(0, len(bitstring), 2)]
+    for i in range(n):
+        for j in range(i + 2, n):
+            if sequence[i] == 'H' and sequence[j] == 'H':
+                terms.append((cirq.Z(qubits[i]) * cirq.Z(qubits[j]), -1.5))
 
-# -----------------------------
-# 4. Generate 3D Fold Path
-# -----------------------------
-def generate_fold_path_3d(direction_indices):
-    pos = [np.array([0, 0, 0])]
-    for idx in direction_indices:
-        step = tetrahedral_directions[idx]
-        pos.append(pos[-1] + step)
-    return pos
+    return terms
 
-# -----------------------------
-# 5. Build Hamiltonian
-# -----------------------------
-def build_hamiltonian(residue_sequence, qubits, overlap_penalty=5.0, contact_reward=-1.5):
-    hamiltonian = []
-    n = len(residue_sequence)
-
-    for i, j in combinations(range(n), 2):
-        if residue_sequence[i] == 'H' and residue_sequence[j] == 'H' and abs(i - j) > 1:
-            qi = 2 * (i - 1)
-            qj = 2 * (j - 1)
-            if qi < len(qubits) and qj < len(qubits):
-                hamiltonian.append((contact_reward, cirq.Z(qubits[qi]) * cirq.Z(qubits[qj])))
-
-    for i in range(len(qubits) - 2):
-        hamiltonian.append((overlap_penalty, cirq.Z(qubits[i]) * cirq.Z(qubits[i + 2])))
-
-    return hamiltonian
-
-# -----------------------------
-# 6. Calculate Energy
-# -----------------------------
-def bitstring_energy_3d(bitstring, hamiltonian, residue_sequence):
-    direction_indices = bitstring_to_directions(bitstring)
-    positions = generate_fold_path_3d(direction_indices)
-
-    energy = 0
-    for coeff, pauli_term in hamiltonian:
-        val = 1
-        for q in pauli_term.qubits:
-            bit_index = int(str(q)[1:])
-            bit = int(bitstring[bit_index])
-            val *= 1 if bit == 0 else -1
-        energy += coeff * val
-
-    if len(set(map(tuple, positions))) < len(positions):
-        energy += 10.0  # overlap penalty
-
-    for i, j in combinations(range(len(positions)), 2):
-        if abs(i - j) > 1 and residue_sequence[i] == residue_sequence[j] == 'H':
-            dist = np.linalg.norm(positions[i] - positions[j])
-            if np.isclose(dist, np.linalg.norm(tetrahedral_directions[0])):
-                energy += -1.5
-
-    return energy
-
-# -----------------------------
-# 7. Quantum Circuit (Ansatz)
-# -----------------------------
-def ansatz(params, qubits):
+def build_circuit(qubits, params):
     circuit = cirq.Circuit()
     for i, qubit in enumerate(qubits):
         circuit.append(cirq.rx(params[i])(qubit))
     return circuit
 
-# -----------------------------
-# 8. Energy Expectation
-# -----------------------------
-def expectation(params):
-    qubits = cirq.NamedQubit.range(num_qubits, prefix="q")
-    circuit = ansatz(params, qubits)
+def expectation(params, qubits, hamiltonian, sim):
+    circuit = build_circuit(qubits, params)
+    circuit.append(cirq.measure(*qubits, key='m'))
+    result = sim.run(circuit, repetitions=100)
 
-    for q in qubits:
-        circuit.append(cirq.measure(q, key=str(q)))
+    bitstrings = []
+    for i in range(100):
+        bits = ''.join(str(result.measurements['m'][i][j]) for j in range(len(qubits)))
+        bitstrings.append(bits)
 
-    sim = cirq.Simulator()
-    result = sim.run(circuit, repetitions=1)
-    bitstring = ''.join(str(result.measurements[str(q)][0][0]) for q in qubits)
+    unique_bitstrings = list(set(bitstrings))
+    best_energy = float('inf')
 
-    hamiltonian = build_hamiltonian(sequence, qubits)
-    energy = bitstring_energy_3d(bitstring, hamiltonian, sequence)
+    for b in unique_bitstrings:
+        e = bitstring_energy_3d(b, sequence)
+        if e < best_energy:
+            best_energy = e
+
+    return best_energy
+
+
+def bitstring_to_path_3d(bitstring):
+    position = np.array([0, 0, 0])
+    path = [position.copy()]
+    dir_index = 0
+
+    for i in range(0, len(bitstring), 2):
+        turn = bitstring[i:i+2]
+        if turn == '00':
+            pass
+        elif turn == '01':
+            dir_index = (dir_index + 1) % 4
+        elif turn == '10':
+            dir_index = (dir_index - 1) % 4
+        elif turn == '11':
+            dir_index = (dir_index + 2) % 4
+        position = position + tetrahedral_directions[dir_index]
+        path.append(position.copy())
+
+    return path
+
+
+def bitstring_energy_3d(bitstring, sequence):
+    path = bitstring_to_path_3d(bitstring)
+    energy = 0.0
+
+    for i in range(len(sequence)):
+        for j in range(i + 2, len(sequence)):
+            if sequence[i] == 'H' and sequence[j] == 'H':
+                dist = np.linalg.norm(np.array(path[i]) - np.array(path[j]))
+                if np.isclose(dist, np.linalg.norm(tetrahedral_directions[0])):
+                    energy += -1.5
+
+
+    if len(set(map(tuple, path))) < len(path):
+        energy += 10.0
+
     return energy
 
-# -----------------------------
-# 9. Run Optimization
-# -----------------------------
-init_params = np.random.uniform(0, 2 * np.pi, size=num_qubits)
-result = minimize(expectation, init_params, method='COBYLA', options={'disp': True})
 
-# -----------------------------
-# 10. Plot 3D Fold Model
-# -----------------------------
-def plot_3d_fold_model(positions, residue_sequence=None):
-    fig = plt.figure(figsize=(8, 6))
+def visualize_3d_path(bitstring, sequence):
+    path = bitstring_to_path_3d(bitstring)
+    x, y, z = zip(*path)
+    colors = ['red' if s == 'H' else 'blue' for s in sequence]
+
+    fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    ax.plot(x, y, z, '-o', color='gray', linewidth=2)
+    for i in range(len(path)):
+        ax.scatter(x[i], y[i], z[i], color=colors[i], s=100)
 
-    xs = [p[0] for p in positions]
-    ys = [p[1] for p in positions]
-    zs = [p[2] for p in positions]
-
-    ax.plot(xs, ys, zs, color='blue', marker='o', linewidth=2)
-
-    if residue_sequence:
-        for i, (x, y, z) in enumerate(zip(xs, ys, zs)):
-            color = 'red' if residue_sequence[i] == 'H' else 'green'
-            ax.scatter(x, y, z, color=color, s=100)
-            ax.text(x, y, z, f'{i} ({residue_sequence[i]})', fontsize=9)
-    else:
-        for i, (x, y, z) in enumerate(zip(xs, ys, zs)):
-            ax.text(x, y, z, str(i), fontsize=9)
-
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('3D Fold Model of Protein Chain')
+    ax.set_title('3D Protein Fold')
     plt.show()
 
-# -----------------------------
-# 11. Decode Result & Plot
-# -----------------------------
-bitstring = ''.join(['0' if np.cos(p / 2) ** 2 > 0.5 else '1' for p in result.x])
-direction_indices = bitstring_to_directions(bitstring)
-positions = generate_fold_path_3d(direction_indices)
+def run_quantum_simulation(sequence):
+    n = len(sequence)
+    num_qubits = 2 * (n - 1) 
+    qubits = [cirq.LineQubit(i) for i in range(num_qubits)]
+    sim = cirq.Simulator()
 
-plot_3d_fold_model(positions, sequence)
 
-print("Final energy:", result.fun)
-print("Optimized parameters:", result.x)
-print("Bitstring:", bitstring)
+
+
+
+
+   
+    hamiltonian = build_hamiltonian(qubits, sequence)
+
+    init_params = np.random.uniform(0, 2 * np.pi, num_qubits)
+    result = minimize(expectation, init_params, args=(qubits, hamiltonian, sim),
+                      method='COBYLA', options={'maxiter': 100})
+
+    print("Optimization finished.")
+    print("Best energy found:", result.fun)
+
+    circuit = build_circuit(qubits, result.x)
+    circuit.append(cirq.measure(*qubits, key='m'))
+    final_result = sim.run(circuit, repetitions=100)
+
+    bitstrings = []
+    for i in range(100):
+        bits = ''.join(str(final_result.measurements['m'][i][j]) for j in range(len(qubits)))
+        bitstrings.append(bits)
+
+    unique_bitstrings = list(set(bitstrings))
+    scored = [(b, bitstring_energy_3d(b, sequence)) for b in unique_bitstrings]
+    scored.sort(key=lambda x: x[1])
+
+    print("\nTop 5 folding solutions:")
+    for i, (b, e) in enumerate(scored[:5]):
+        print(f"{i+1}: Bitstring = {b}, Energy = {e}")
+
+    visualize_3d_path(scored[0][0], sequence)
+
+sequence = "HPHPPHHPHPPHPHHPPHPH"
+run_quantum_simulation(sequence)
