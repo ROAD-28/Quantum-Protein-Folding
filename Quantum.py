@@ -101,49 +101,42 @@ def visualize_3d_path(bitstring, sequence):
     ax.plot(x, y, z, '-o', color='gray', linewidth=2)
     for i in range(len(path)):
         ax.scatter(x[i], y[i], z[i], color=colors[i], s=100)
-
-    ax.set_title('3D Protein Fold')
+    ax.set_title('Best 3D Protein Fold')
     plt.show()
 
-def run_quantum_simulation(sequence):
+def run_quantum_simulation(sequence, num_runs=30):
     n = len(sequence)
     num_qubits = 2 * (n - 1) 
     qubits = [cirq.LineQubit(i) for i in range(num_qubits)]
     sim = cirq.Simulator()
-
-
-
-
-
-
-   
     hamiltonian = build_hamiltonian(qubits, sequence)
 
-    init_params = np.random.uniform(0, 2 * np.pi, num_qubits)
-    result = minimize(expectation, init_params, args=(qubits, hamiltonian, sim),
-                      method='COBYLA', options={'maxiter': 100})
+    all_solutions = []
 
-    print("Optimization finished.")
-    print("Best energy found:", result.fun)
+    for run in range(num_runs):
+        print(f"--- Optimization Run {run + 1} ---")
+        init_params = np.random.uniform(0, 2 * np.pi, num_qubits)
 
-    circuit = build_circuit(qubits, result.x)
-    circuit.append(cirq.measure(*qubits, key='m'))
-    final_result = sim.run(circuit, repetitions=100)
+        result = minimize(expectation, init_params, args=(qubits, hamiltonian, sim),
+                          method='COBYLA', options={'maxiter': 100})
 
-    bitstrings = []
-    for i in range(100):
-        bits = ''.join(str(final_result.measurements['m'][i][j]) for j in range(len(qubits)))
-        bitstrings.append(bits)
+        circuit = build_circuit(qubits, result.x)
+        circuit.append(cirq.measure(*qubits, key='m'))
+        final_result = sim.run(circuit, repetitions=100)
 
-    unique_bitstrings = list(set(bitstrings))
-    scored = [(b, bitstring_energy_3d(b, sequence)) for b in unique_bitstrings]
-    scored.sort(key=lambda x: x[1])
+        for i in range(100):
+            bits = ''.join(str(final_result.measurements['m'][i][j]) for j in range(len(qubits)))
+            energy = bitstring_energy_3d(bits, sequence)
+            all_solutions.append((bits, energy))
 
-    print("\nTop 5 folding solutions:")
-    for i, (b, e) in enumerate(scored[:5]):
-        print(f"{i+1}: Bitstring = {b}, Energy = {e}")
+    all_solutions = list(set(all_solutions))
+    all_solutions.sort(key=lambda x: x[1])
 
-    visualize_3d_path(scored[0][0], sequence)
+    best_bitstring, best_energy = all_solutions[0]
+    print(f"Bitstring = {best_bitstring}")
+    print(f"Energy = {best_energy:.4f}")
+
+    visualize_3d_path(best_bitstring, sequence)
 
 sequence = "HPHPPHHPHPPHPHHPPHPH"
-run_quantum_simulation(sequence)
+run_quantum_simulation(sequence, num_runs=30)
