@@ -3,6 +3,7 @@ import numpy as np
 import cirq
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
+from itertools import combinations
 
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -31,25 +32,34 @@ def build_circuit(qubits, params):
         circuit.append(cirq.rx(params[i])(qubit))
     return circuit
 
-def expectation(params, qubits, hamiltonian, sim):
+def expectation(params, qubits, hamiltonian, sim, alpha=0.3, shots=200):
     circuit = build_circuit(qubits, params)
     circuit.append(cirq.measure(*qubits, key='m'))
-    result = sim.run(circuit, repetitions=100)
+    result = sim.run(circuit, repetitions=shots)
 
+    measurements = result.measurements['m']
     bitstrings = []
-    for i in range(100):
-        bits = ''.join(str(result.measurements['m'][i][j]) for j in range(len(qubits)))
-        bitstrings.append(bits)
+    bits = [''.join(str(b) for b in reversed(m)) for m in measurements]
+    bitstrings.append(bits)
 
     unique_bitstrings = list(set(bitstrings))
     best_energy = float('inf')
 
+    cutoff = max(1, int(alpha*shots))
+
+    energies = []
+
     for b in unique_bitstrings:
-        e = bitstring_energy_3d(b, sequence)
+        e = bitstring_energy_3d(b, hamiltonian, sequence, qubits)
+        energies.append(e)
+
         if e < best_energy:
             best_energy = e
 
-    return best_energy
+    sorted_energies = sorted(energies)
+
+    return np.mean(sorted_energies[:cutoff])
+    
 
 
 def bitstring_to_path_3d(bitstring):
@@ -73,20 +83,29 @@ def bitstring_to_path_3d(bitstring):
     return path
 
 
-def bitstring_energy_3d(bitstring, sequence):
-    path = bitstring_to_path_3d(bitstring)
-    energy = 0.0
+# --- Bitstring Energy (position-aware) ---
+def bitstring_energy_3d(bitstring, hamiltonian, residue_sequence, qubits):
+    positions = bitstring_to_path_3d(bitstring)
 
-    for i in range(len(sequence)):
-        for j in range(i + 2, len(sequence)):
-            if sequence[i] == 'H' and sequence[j] == 'H':
-                dist = np.linalg.norm(np.array(path[i]) - np.array(path[j]))
-                if np.isclose(dist, np.linalg.norm(tetrahedral_directions[0])):
-                    energy += -1.5
+    energy = 0
+    # Evaluate from Hamiltonian
+    for coeff, pauli_term in hamiltonian:
+        val = 1
+        for q in pauli_term.qubits:
+            bit = int(bitstring[qubits.index(q)])
+            val *= 1 if bit == 0 else -1
+        energy += coeff * val
 
+    # Extra penalty for actual overlaps (based on position)
+    if len(set(map(tuple, positions))) < len(positions):
+        energy += 10.0  # strong overlap penalty
 
-    if len(set(map(tuple, path))) < len(path):
-        energy += 10.0
+    # Bonus H-H contact detection at physical distance
+    for i, j in combinations(range(len(positions)), 2):
+        if abs(i - j) > 1 and residue_sequence[i] == residue_sequence[j] == 'H':
+            dist = np.linalg.norm(positions[i] - positions[j])
+            if np.isclose(dist, np.linalg.norm(tetrahedral_directions[0])):
+                energy += -1.5
 
     return energy
 
@@ -138,5 +157,6 @@ def run_quantum_simulation(sequence, num_runs=30):
 
     visualize_3d_path(best_bitstring, sequence)
 
-sequence = "HPHPPHHPHPPHPHHPPHPH"
-run_quantum_simulation(sequence, num_runs=30)
+sequence = "HHPH"
+run_quantum_simulation(sequence, num_runs=10)
+
