@@ -5,8 +5,8 @@ import cirq
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 
-
 from mpl_toolkits.mplot3d import Axes3D
+
 
 
 tetrahedral_directions = [
@@ -29,30 +29,46 @@ def build_hamiltonian(qubits, sequence):
 
 def build_circuit(qubits, params):
     circuit = cirq.Circuit()
-    for i, qubit in enumerate(qubits):
-        circuit.append(cirq.rx(params[i])(qubit))
+    n = len(qubits)
+
+    # 1. Apply Hadamard to all qubits
+    for q in qubits:
+        circuit.append(cirq.H(q))
+
+    # 2. Add CNOT entanglement in a ring
+    for i in range(n - 1):
+        circuit.append(cirq.CNOT(qubits[i], qubits[i + 1]))
+
+    # Optionally close the ring
+    if n > 2:
+        circuit.append(cirq.CNOT(qubits[-1], qubits[0]))
+
+    # 3. Parameterized RX layer
+    for i, q in enumerate(qubits):
+        circuit.append(cirq.rx(params[i])(q))
+
     return circuit
+
 #------------------------------------
-def expectation(params, qubits, hamiltonian, sim):
+def expectation(params, qubits, hamiltonian, sim, sequence):  # CHANGED
     circuit = build_circuit(qubits, params)
     circuit.append(cirq.measure(*qubits, key='m'))
-    result = sim.run(circuit, repetitions=500)
+    result = sim.run(circuit, repetitions=100)
 
     bitstrings = []
-    for i in range(500):
+    for i in range(100):
         bits = ''.join(str(result.measurements['m'][i][j]) for j in range(len(qubits)))
         bitstrings.append(bits)
 
     unique_bitstrings = list(set(bitstrings))
-    energies = []
+    best_energy = float('inf')
+
     for b in unique_bitstrings:
         e = bitstring_energy_3d(b, sequence)
-        energies.append(e)
-    energies.sort()
-    top_10_percent = max(1, len(energies)//10)
-    avg_energy = np.mean(energies[:top_10_percent])
+        if e < best_energy:
+            best_energy = e
 
-    return avg_energy
+    return best_energy
 
 
 def bitstring_to_path_3d(bitstring):
@@ -105,21 +121,10 @@ def visualize_3d_path(bitstring, sequence):
     for i in range(len(path)):
         ax.scatter(x[i], y[i], z[i], color=colors[i], s=100)
     ax.set_title('Best 3D Protein Fold')
-    ax.set_xlabel('X Position')
-    ax.set_ylabel('Y Position')
-    ax.set_zlabel('Z Position')
+    ax.set_xlabel('X axis')  # ADDED
+    ax.set_ylabel('Y axis')  # ADDED
+    ax.set_zlabel('Z axis')  # ADDED
     plt.show()
-    plt.close()
-
-def plot_energy_trend(energies):
-    plt.figure()
-    plt.plot(range(1, len(energies)+1), energies, marker='o', linestyle='-', color='blue')
-    plt.title('Energy Minimization Trend Over Runs')
-    plt.xlabel('Run Number')
-    plt.ylabel('Lowest Energy Found')
-    plt.grid(True)
-    plt.show()
-    plt.close()
 #------------------------
 def run_quantum_simulation(sequence, num_runs=30):
     n = len(sequence)
@@ -129,31 +134,29 @@ def run_quantum_simulation(sequence, num_runs=30):
     hamiltonian = build_hamiltonian(qubits, sequence)
 
     all_solutions = []
-    lowest_energies_per_run = []
+    avg_energies = []  # ADDED
 
     for run in range(num_runs):
         print(f"--- Optimization Run {run + 1} ---")
         init_params = np.random.uniform(0, 2 * np.pi, num_qubits)
 
-        result = minimize(expectation, init_params, args=(qubits, hamiltonian, sim),
+        result = minimize(expectation, init_params, args=(qubits, hamiltonian, sim, sequence),  # CHANGED
                           method='COBYLA', options={'maxiter': 100})
 
         circuit = build_circuit(qubits, result.x)
         circuit.append(cirq.measure(*qubits, key='m'))
-        final_result = sim.run(circuit, repetitions=500)
+        final_result = sim.run(circuit, repetitions=100)
 
-        run_solutions = []
-        for i in range(500):
+        run_energies = []  # ADDED
+
+        for i in range(100):
             bits = ''.join(str(final_result.measurements['m'][i][j]) for j in range(len(qubits)))
             energy = bitstring_energy_3d(bits, sequence)
-            run_solutions.append((bits, energy))
+            all_solutions.append((bits, energy))
+            run_energies.append(energy)  # ADDED
 
-        run_solutions = list(set(run_solutions))
-        run_solutions.sort(key=lambda x: x[1])
-        best_bits, best_energy = run_solutions[0]
-        lowest_energies_per_run.append(best_energy)
-
-        all_solutions.extend(run_solutions)
+        min_energy = min(run_energies)  # NEW
+        avg_energies.append(min_energy)  # NEW
 
     all_solutions = list(set(all_solutions))
     all_solutions.sort(key=lambda x: x[1])
@@ -162,8 +165,18 @@ def run_quantum_simulation(sequence, num_runs=30):
     print(f"Bitstring = {best_bitstring}")
     print(f"Energy = {best_energy:.4f}")
 
-    plot_energy_trend(lowest_energies_per_run)
     visualize_3d_path(best_bitstring, sequence)
 
-sequence = "HPHPPHHPHPPHPHHPPHPH"
-run_quantum_simulation(sequence, num_runs=100)
+    # ADDED: Plot energy trend
+    plt.figure()
+    plt.plot(range(1, num_runs + 1), avg_energies, marker='o')
+    plt.xlabel('Optimization Run')
+    plt.ylabel('Minimum Energy')  # NEW
+    plt.title('Energy Trend Across Optimization Runs')
+    plt.grid(True)
+    plt.ylim(min(-1.5, min(avg_energies)) - 1, max(avg_energies) + 1)  # ADDED
+    plt.show()
+
+sequence = "HPHPPHHPHPPH"
+run_quantum_simulation(sequence, num_runs=30)
+#-----------------------
