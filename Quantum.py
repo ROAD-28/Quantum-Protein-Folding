@@ -177,6 +177,20 @@ def run_quantum_simulation(sequence, num_runs=30):
     plt.ylim(min(-1.5, min(avg_energies)) - 1, max(avg_energies) + 1)  # ADDED
     plt.show()
 
-sequence = "HPHPPHHPHPPH"
+sequence = "HPHPPH"
 run_quantum_simulation(sequence, num_runs=30)
+
 #-----------------------
+# ADDED: Save quantum circuit as PNG and PDF
+qubits = [cirq.LineQubit(i) for i in range(2 * (len(sequence) - 1))]
+params = np.random.uniform(0, 2 * np.pi, len(qubits))
+circuit = build_circuit(qubits, params)
+diagram_text = circuit.to_text_diagram()
+
+plt.figure(figsize=(20, len(qubits)))
+plt.axis('off')
+plt.text(0.01, 1, diagram_text, fontfamily='monospace', fontsize=12, verticalalignment='top')
+plt.tight_layout()
+plt.savefig("quantum_circuit.png", dpi=300, bbox_inches='tight')
+plt.savefig("quantum_circuit.pdf", bbox_inches='tight')
+plt.close()
